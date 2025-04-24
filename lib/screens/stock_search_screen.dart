@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class StockSearchScreen extends StatefulWidget {
   final String? stockSymbol;
@@ -20,59 +21,68 @@ class _StockSearchScreenState extends State<StockSearchScreen> {
   String _stockPrice = '';
   String _dailyChange = '';
   List<FlSpot> _chartData = [];
+  List<dynamic> _newsArticles = [];
   bool _isLoading = false;
 
-  final String _apiKey = 'd04r0fhr01qspgm4ojqgd04r0fhr01qspgm4ojr0'; // Replace with your Finnhub API key
+  final String _apiKey = 'd04r0fhr01qspgm4ojqgd04r0fhr01qspgm4ojr0';
 
   @override
   void initState() {
     super.initState();
     if (widget.stockSymbol != null) {
-      _searchController.text = widget.stockSymbol!;
-      searchStock(); 
+      _searchController.text = widget.stockSymbol!.toUpperCase();
+      searchStock();
     }
   }
 
   Future<void> searchStock() async {
     final symbol = _searchController.text.trim().toUpperCase();
-
     if (symbol.isEmpty) return;
 
     setState(() {
       _isLoading = true;
     });
 
-    final url = 'https://finnhub.io/api/v1/quote?symbol=$symbol&token=$_apiKey';
+    final quoteUrl = 'https://finnhub.io/api/v1/quote?symbol=$symbol&token=$_apiKey';
+    final newsUrl = 'https://finnhub.io/api/v1/company-news?symbol=$symbol&from=2024-04-01&to=2025-04-24&token=$_apiKey';
 
     try {
-      final response = await http.get(Uri.parse(url));
+      final quoteResponse = await http.get(Uri.parse(quoteUrl));
+      final newsResponse = await http.get(Uri.parse(newsUrl));
 
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
+      if (quoteResponse.statusCode == 200) {
+        final data = json.decode(quoteResponse.body);
         double currentPrice = data['c'].toDouble();
-        double openPrice = data['o'].toDouble(); 
+        double openPrice = data['o'].toDouble();
 
         double change = (currentPrice - openPrice) / openPrice * 100;
+
+        _generateChartData(currentPrice);
+
         setState(() {
           _searchResult = symbol;
           _stockPrice = currentPrice.toStringAsFixed(2);
           _dailyChange = change.toStringAsFixed(2) + '%';
-          _isLoading = false;
-        });
-
-        _generateChartData(currentPrice);
-      } else {
-        setState(() {
-          _isLoading = false;
-          _stockPrice = 'Error fetching data';
-          _dailyChange = '';
         });
       }
-    } catch (e) {
+
+      if (newsResponse.statusCode == 200) {
+        final newsData = json.decode(newsResponse.body);
+        setState(() {
+          _newsArticles = newsData;
+        });
+      }
+
       setState(() {
         _isLoading = false;
-        _stockPrice = 'Error fetching data';
+      });
+    } catch (e) {
+      print('Error fetching stock data: $e');
+      setState(() {
+        _isLoading = false;
+        _stockPrice = 'Error';
         _dailyChange = '';
+        _newsArticles = [];
       });
     }
   }
@@ -87,10 +97,31 @@ class _StockSearchScreenState extends State<StockSearchScreen> {
     });
   }
 
-  // Add stock to the watchlist
   Future<void> addToWatchlist() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null || _searchResult.isEmpty || _stockPrice.isEmpty) return;
+
+    String? category = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        TextEditingController _categoryController = TextEditingController();
+        return AlertDialog(
+          title: Text('Choose or Create Category'),
+          content: TextField(
+            controller: _categoryController,
+            decoration: InputDecoration(hintText: 'Enter category'),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, _categoryController.text.trim()),
+              child: Text('OK'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (category == null || category.isEmpty) return;
 
     final watchlistCollection = FirebaseFirestore.instance
         .collection('users')
@@ -100,10 +131,18 @@ class _StockSearchScreenState extends State<StockSearchScreen> {
     await watchlistCollection.add({
       'symbol': _searchResult,
       'price': _stockPrice,
+      'category': category,
       'timestamp': FieldValue.serverTimestamp(),
     });
 
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Stock added to watchlist')));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Added to watchlist under "$category"')));
+  }
+
+  Future<void> _launchArticleUrl(String url) async {
+    final uri = Uri.parse(url);
+    if (!await launchUrl(uri)) {
+      throw 'Could not launch $url';
+    }
   }
 
   @override
@@ -127,53 +166,49 @@ class _StockSearchScreenState extends State<StockSearchScreen> {
             if (_isLoading)
               CircularProgressIndicator()
             else if (_searchResult.isNotEmpty)
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Stock: $_searchResult',
-                    style: Theme.of(context).textTheme.headlineMedium,
-                  ),
-                  Text(
-                    'Current Price: \$$_stockPrice',
-                    style: Theme.of(context).textTheme.bodyLarge,
-                  ),
-                  Text(
-                    'Daily Change: $_dailyChange',
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                  SizedBox(height: 20),
-                  SizedBox(
-                    height: 200,
-                    child: LineChart(
-                      LineChartData(
-                        gridData: FlGridData(show: true),
-                        titlesData: FlTitlesData(show: true),
-                        borderData: FlBorderData(show: true),
-                        lineBarsData: [
-                          LineChartBarData(
-                            spots: _chartData,
-                            isCurved: true,
-                            color: Colors.blue,
-                            barWidth: 4,
-                            belowBarData: BarAreaData(show: false),
-                          ),
-                        ],
+              Expanded(
+                child: ListView(
+                  children: [
+                    Text('Stock: $_searchResult', style: Theme.of(context).textTheme.headlineMedium),
+                    Text('Current Price: \$$_stockPrice', style: Theme.of(context).textTheme.bodyLarge),
+                    Text('Daily Change: $_dailyChange', style: Theme.of(context).textTheme.bodyMedium),
+                    SizedBox(height: 20),
+                    SizedBox(
+                      height: 200,
+                      child: LineChart(
+                        LineChartData(
+                          gridData: FlGridData(show: true),
+                          titlesData: FlTitlesData(show: false),
+                          borderData: FlBorderData(show: true),
+                          lineBarsData: [
+                            LineChartBarData(
+                              spots: _chartData,
+                              isCurved: true,
+                              color: Colors.blue,
+                              barWidth: 4,
+                              belowBarData: BarAreaData(show: false),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                  SizedBox(height: 10),
-                  ElevatedButton(
-                    onPressed: addToWatchlist,
-                    child: Text('Add to Watchlist'),
-                  ),
-                ],
+                    SizedBox(height: 10),
+                    ElevatedButton(
+                      onPressed: addToWatchlist,
+                      child: Text('Add to Watchlist'),
+                    ),
+                    SizedBox(height: 20),
+                    Text('News', style: Theme.of(context).textTheme.titleLarge),
+                    ..._newsArticles.map((article) => ListTile(
+                          title: Text(article['headline'] ?? 'No headline'),
+                          subtitle: Text(article['source'] ?? ''),
+                          onTap: () => _launchArticleUrl(article['url']),
+                        )),
+                  ],
+                ),
               )
             else
-              Text(
-                'Enter a stock symbol to get started.',
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
+              Text('Enter a stock symbol to get started.', style: Theme.of(context).textTheme.bodyMedium),
           ],
         ),
       ),

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'stock_search_screen.dart'; // Import StockSearchScreen
+import 'stock_search_screen.dart';
 
 class WatchlistScreen extends StatefulWidget {
   @override
@@ -9,87 +9,71 @@ class WatchlistScreen extends StatefulWidget {
 }
 
 class _WatchlistScreenState extends State<WatchlistScreen> {
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  late Stream<QuerySnapshot> _watchlistStream;
-
-  @override
-  void initState() {
-    super.initState();
-    final user = _auth.currentUser;
-    if (user != null) {
-      _watchlistStream = FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .collection('watchlist')
-          .snapshots();
-    }
-  }
-
-  // Delete a stock from watchlist
-  Future<void> _deleteStock(String docId) async {
-    final user = _auth.currentUser;
-    if (user != null) {
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .collection('watchlist')
-          .doc(docId)
-          .delete();
-    }
-  }
+  final user = FirebaseAuth.instance.currentUser;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Watchlist')),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: _watchlistStream,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return Center(child: CircularProgressIndicator());
-          }
+      appBar: AppBar(title: Text('My Watchlist')),
+      body: user == null
+          ? Center(child: Text('Please sign in to view your watchlist.'))
+          : StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('users')
+                  .doc(user!.uid)
+                  .collection('watchlist')
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) {
+                  return Center(child: CircularProgressIndicator());
+                }
 
-          if (snapshot.hasError) {
-            return Center(child: Text('Error: ${snapshot.error}'));
-          }
+                final docs = snapshot.data!.docs;
+                Map<String, List<QueryDocumentSnapshot>> categorizedStocks = {};
 
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return Center(child: Text('No stocks in your watchlist.'));
-          }
+                for (var doc in docs) {
+                  String category = doc['category'] ?? 'Uncategorized';
+                  if (!categorizedStocks.containsKey(category)) {
+                    categorizedStocks[category] = [];
+                  }
+                  categorizedStocks[category]!.add(doc);
+                }
 
-          final stocks = snapshot.data!.docs;
-
-          return ListView.builder(
-            itemCount: stocks.length,
-            itemBuilder: (context, index) {
-              final stock = stocks[index];
-              final symbol = stock['symbol'];
-              final price = stock['price'];
-
-              return GestureDetector(
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => StockSearchScreen(stockSymbol: symbol),
-                    ),
-                  );
-                },
-                child: ListTile(
-                  title: Text(symbol),
-                  subtitle: Text('Price: \$${price}'),
-                  trailing: IconButton(
-                    icon: Icon(Icons.delete),
-                    onPressed: () {
-                      _deleteStock(stock.id);
-                    },
-                  ),
-                ),
-              );
-            },
-          );
-        },
-      ),
+                return ListView(
+                  children: categorizedStocks.entries.map((entry) {
+                    return ExpansionTile(
+                      title: Text(entry.key),
+                      children: entry.value.map((stockDoc) {
+                        final symbol = stockDoc['symbol'];
+                        final price = stockDoc['price'];
+                        return ListTile(
+                          title: Text(symbol),
+                          subtitle: Text('Price: \$$price'),
+                          trailing: IconButton(
+                            icon: Icon(Icons.delete),
+                            onPressed: () async {
+                              await stockDoc.reference.delete();
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('$symbol removed.')));
+                            },
+                          ),
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => StockSearchScreen(
+                                  stockSymbol: symbol,
+                                ),
+                              ),
+                            );
+                          },
+                        );
+                      }).toList(),
+                    );
+                  }).toList(),
+                );
+              },
+            ),
     );
   }
 }
