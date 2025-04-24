@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'stock_search_screen.dart'; // Import StockSearchScreen
 
 class WatchlistScreen extends StatefulWidget {
@@ -9,73 +9,86 @@ class WatchlistScreen extends StatefulWidget {
 }
 
 class _WatchlistScreenState extends State<WatchlistScreen> {
-  List<DocumentSnapshot> watchlist = [];
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  late Stream<QuerySnapshot> _watchlistStream;
 
   @override
   void initState() {
     super.initState();
-    fetchWatchlist();
+    final user = _auth.currentUser;
+    if (user != null) {
+      _watchlistStream = FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('watchlist')
+          .snapshots();
+    }
   }
 
-  Future<void> fetchWatchlist() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-
-    final querySnapshot = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(user.uid)
-        .collection('watchlist')
-        .get();
-
-    setState(() {
-      watchlist = querySnapshot.docs;
-    });
-  }
-
-  Future<void> deleteFromWatchlist(String docId) async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-
-    await FirebaseFirestore.instance
-        .collection('users')
-        .doc(user.uid)
-        .collection('watchlist')
-        .doc(docId)
-        .delete();
-
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Stock removed from watchlist')));
-    fetchWatchlist();
+  // Delete a stock from watchlist
+  Future<void> _deleteStock(String docId) async {
+    final user = _auth.currentUser;
+    if (user != null) {
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('watchlist')
+          .doc(docId)
+          .delete();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text('Watchlist')),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: ListView.builder(
-          itemCount: watchlist.length,
-          itemBuilder: (context, index) {
-            final stock = watchlist[index];
-            return ListTile(
-              title: Text(stock['symbol']),
-              subtitle: Text('Price: \$${stock['price']}'),
-              trailing: IconButton(
-                icon: Icon(Icons.delete),
-                onPressed: () => deleteFromWatchlist(stock.id),
-              ),
-              onTap: () {
-                // Navigate to StockSearchScreen with selected stock symbol
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => StockSearchScreen(stockSymbol: stock['symbol']),
+      body: StreamBuilder<QuerySnapshot>(
+        stream: _watchlistStream,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return Center(child: CircularProgressIndicator());
+          }
+
+          if (snapshot.hasError) {
+            return Center(child: Text('Error: ${snapshot.error}'));
+          }
+
+          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+            return Center(child: Text('No stocks in your watchlist.'));
+          }
+
+          final stocks = snapshot.data!.docs;
+
+          return ListView.builder(
+            itemCount: stocks.length,
+            itemBuilder: (context, index) {
+              final stock = stocks[index];
+              final symbol = stock['symbol'];
+              final price = stock['price'];
+
+              return GestureDetector(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => StockSearchScreen(stockSymbol: symbol),
+                    ),
+                  );
+                },
+                child: ListTile(
+                  title: Text(symbol),
+                  subtitle: Text('Price: \$${price}'),
+                  trailing: IconButton(
+                    icon: Icon(Icons.delete),
+                    onPressed: () {
+                      _deleteStock(stock.id);
+                    },
                   ),
-                );
-              },
-            );
-          },
-        ),
+                ),
+              );
+            },
+          );
+        },
       ),
     );
   }

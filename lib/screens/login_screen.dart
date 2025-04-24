@@ -1,7 +1,6 @@
-// screens/login_screen.dart
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'home_screen.dart'; // Ensure you have this import
+import 'home_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   @override
@@ -9,74 +8,67 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final TextEditingController emailController = TextEditingController();
-  final TextEditingController passwordController = TextEditingController();
-  String errorMessage = '';
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
 
-  // Login function
   Future<void> login() async {
     try {
       await FirebaseAuth.instance.signInWithEmailAndPassword(
-        email: emailController.text,
-        password: passwordController.text,
+        email: _emailController.text,
+        password: _passwordController.text,
       );
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => HomeScreen()), // Navigate to HomeScreen
+        MaterialPageRoute(builder: (context) => HomeScreen()),
       );
     } catch (e) {
-      setState(() {
-        errorMessage = 'Login failed: $e';
-      });
+      print("Error: $e");
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to login')),
+      );
     }
   }
 
-  // Register function
   Future<void> register() async {
     try {
       await FirebaseAuth.instance.createUserWithEmailAndPassword(
-        email: emailController.text,
-        password: passwordController.text,
+        email: _emailController.text,
+        password: _passwordController.text,
       );
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => HomeScreen()), // Navigate to HomeScreen
+        MaterialPageRoute(builder: (context) => HomeScreen()),
       );
     } catch (e) {
-      setState(() {
-        errorMessage = 'Registration failed: $e';
-      });
+      print("Error: $e");
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to register')),
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Stock Tracker')),
+      appBar: AppBar(title: Text('Login / Register')),
       body: Padding(
-        padding: EdgeInsets.all(16),
+        padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
-            if (errorMessage.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: Text(errorMessage, style: TextStyle(color: Colors.red)),
-              ),
             TextField(
-              controller: emailController,
+              controller: _emailController,
               decoration: InputDecoration(labelText: 'Email'),
             ),
             TextField(
-              controller: passwordController,
+              controller: _passwordController,
               decoration: InputDecoration(labelText: 'Password'),
               obscureText: true,
             ),
-            SizedBox(height: 20),
+            SizedBox(height: 16),
             ElevatedButton(
               onPressed: login,
               child: Text('Login'),
             ),
-            SizedBox(height: 10),
             ElevatedButton(
               onPressed: register,
               child: Text('Register'),
