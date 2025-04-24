@@ -1,9 +1,7 @@
-
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'screens/auth/login_screen.dart';
 import 'screens/home_screen.dart';
-import 'services/firebase_service.dart';
+import 'screens/login_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -16,9 +14,11 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Stock Tracker',
-      theme: ThemeData.dark(),
-      debugShowCheckedModeBanner: false,
-      home: FirebaseService.isUserLoggedIn() ? HomeScreen() : LoginScreen(),
+      theme: ThemeData(
+        useMaterial3: true,
+        colorSchemeSeed: Colors.indigo,
+      ),
+      home: LoginScreen(),
     );
   }
 }
